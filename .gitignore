@@ -1,0 +1,5 @@
+# Apps Script and scratch files
+scratch*
+*.json
+!appsscript.json
+.agents/
