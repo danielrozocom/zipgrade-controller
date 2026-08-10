@@ -917,6 +917,37 @@ function rebuildFormulasAndFormatting() {
   var sheet = getConsolidatedSheet();
   if (!sheet) return;
 
+  var numStudents = getValidStudentCount();
+  var targetStudentRows = (numStudents > 0) ? numStudents : 40;
+  var newTotalRow = 4 + targetStudentRows;
+
+  // Buscar y limpiar las filas viejas de TOTAL/PROMEDIO si están en una posición incorrecta (ej. fila 21 y 22)
+  try {
+    var oldTotalRow = -1;
+    var maxRows = sheet.getMaxRows();
+    if (maxRows >= 4) {
+      var valsA = sheet.getRange(1, 1, maxRows, 1).getValues();
+      for (var r = 3; r < maxRows; r++) {
+        var txt = String(valsA[r][0] || '').trim().toUpperCase();
+        if (txt === 'TOTAL' || txt === 'PROMEDIO') {
+          oldTotalRow = r + 1;
+          break;
+        }
+      }
+    }
+    
+    if (oldTotalRow > 0 && oldTotalRow !== newTotalRow) {
+      var lastCol = sheet.getLastColumn();
+      if (lastCol > 0) {
+        // Limpiar contenido, formatos y descombinar A:B en las dos filas viejas de totales
+        var oldRange = sheet.getRange(oldTotalRow, 1, 2, lastCol);
+        oldRange.clearContent().clearFormat();
+        sheet.getRange(oldTotalRow, 1, 1, 2).breakApart();
+        sheet.getRange(oldTotalRow + 1, 1, 1, 2).breakApart();
+      }
+    }
+  } catch (e) { }
+
   // 1. Limpiar/Alinear filas sobrantes o faltantes en todas las hojas primero
   cleanEmptyRowsAllSheets();
 
@@ -974,39 +1005,9 @@ function getConsolidatedSheet() {
 }
 
 function getStudentRowsEndIndex(sheet) {
-  var lastRow = Math.max(sheet.getLastRow(), 30);
-  var valsA = sheet.getRange(1, 1, lastRow, 2).getValues();
-
-  for (var r = 3; r < lastRow; r++) {
-    var cellText1 = String(valsA[r][0] || '').trim().toUpperCase();
-    var cellText2 = String(valsA[r][1] || '').trim().toUpperCase();
-    if (cellText1 === 'TOTAL' || cellText1 === 'PROMEDIO' || cellText2 === 'TOTAL' || cellText2 === 'PROMEDIO') {
-      return r + 1; // valsA es 0-indexado, por lo que el índice r corresponde a la fila r + 1
-    }
-  }
-
-  // Fallback inteligente: si no se encontró la palabra TOTAL/PROMEDIO, calcular según los estudiantes reales en S1
-  try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheetS1 = ss.getSheetByName("S1") || ss.getSheetByName("s1");
-    if (sheetS1) {
-      var s1Last = sheetS1.getLastRow();
-      if (s1Last >= 2) {
-        var s1Vals = sheetS1.getRange(2, 1, s1Last - 1, 2).getValues();
-        var count = 0;
-        for (var i = 0; i < s1Vals.length; i++) {
-          var l = String(s1Vals[i][0] || '').trim();
-          var f = String(s1Vals[i][1] || '').trim();
-          if (l !== '' || f !== '' && !l.includes('#REF!') && !f.includes('#REF!')) {
-            count = i + 1;
-          }
-        }
-        if (count > 0) return 4 + count;
-      }
-    }
-  } catch (e) { }
-
-  return 44; // Si no hay alumnos, el final de la tabla de estudiantes es la fila 44 (filas 4 a 43 para alumnos)
+  var numStudents = getValidStudentCount();
+  var targetStudentRows = (numStudents > 0) ? numStudents : 40;
+  return 4 + targetStudentRows;
 }
 
 function getSubjectsBySession() {
@@ -1627,6 +1628,7 @@ function applyTableFormatting(sheet, studentEndRow) {
   if (maxRows < neededRows) {
     try {
       sheet.insertRowsAfter(maxRows, neededRows - maxRows);
+      maxRows = sheet.getMaxRows();
     } catch (e) {}
   }
 
@@ -1656,6 +1658,15 @@ function applyTableFormatting(sheet, studentEndRow) {
   // Bordes generales de datos (desde fila 4 hasta PROMEDIO)
   var dataRange = sheet.getRange(4, 1, numRows, lastCol);
   dataRange.setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID);
+
+  // Copiar el formato (fuente, número, tamaño, alineación) de la fila 4 a todas las demás filas de estudiantes
+  if (studentEndRow > 5) {
+    try {
+      var sourceRange = sheet.getRange(4, 1, 1, lastCol);
+      var targetRange = sheet.getRange(5, 1, studentEndRow - 4, lastCol);
+      sourceRange.copyTo(targetRange, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    } catch (e) { }
+  }
 
   // Bordes negros a las cabeceras (filas 1, 2 y 3)
   var headerRange = sheet.getRange(1, 1, 3, lastCol);
@@ -1754,6 +1765,15 @@ function applyTableFormatting(sheet, studentEndRow) {
       .setHorizontalAlignment("center")
       .setVerticalAlignment("middle");
   }
+
+  // Failsafe: Limpiar cualquier residuo de formato o contenido debajo de la fila de PROMEDIO (fila studentEndRow + 1)
+  try {
+    var maxRowsOfSheet = sheet.getMaxRows();
+    var startCleanupRow = studentEndRow + 2;
+    if (maxRowsOfSheet >= startCleanupRow && lastCol > 0) {
+      sheet.getRange(startCleanupRow, 1, maxRowsOfSheet - startCleanupRow + 1, lastCol).clearContent().clearFormat();
+    }
+  } catch (e) { }
 }
 
 function applyConditionalFormattingRules(sheet, studentEndRow) {
@@ -2516,6 +2536,13 @@ function cleanEmptyRowsAllSheets() {
       var maxRows = sheet.getMaxRows();
       var maxCols = sheet.getLastColumn();
 
+      // Quitar filtros activos para evitar errores de permisos al eliminar/modificar filas
+      try {
+        if (sheet.getFilter()) {
+          sheet.getFilter().remove();
+        }
+      } catch (e) {}
+
       if (name === "CONSOLIDADO") {
         // En Consolidado: 3 filas de cabecera + targetStudentRows + 1 (TOTAL) + 1 (PROMEDIO)
         var targetLastRow = 3 + targetStudentRows + 2;
@@ -2915,5 +2942,18 @@ function executeJsonImport(jsonString) {
     msg += " Se crearon las sesiones: " + createdSessions.join(", ") + ".";
   }
   return msg;
+}
+
+function getFormulaSeparator() {
+  try {
+    var locale = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetLocale() || "";
+    var lang = locale.split(/[_-]/)[0].toLowerCase();
+    // Idiomas comunes que usan coma decimal y punto y coma (;) como separador de argumentos
+    var semicolonLangs = ["es", "fr", "de", "it", "pt", "ru", "nl", "sv", "no", "da", "fi", "pl", "cs", "sk", "hu", "ro", "tr", "el", "bg", "uk"];
+    if (semicolonLangs.indexOf(lang) !== -1) {
+      return ";";
+    }
+  } catch (e) {}
+  return ",";
 }
 
