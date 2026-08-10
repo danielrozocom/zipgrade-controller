@@ -275,7 +275,10 @@ function ensureFormulaNames(sheet, studentCount) {
   try {
     var formulaCells = [];
     for (var r = 2; r <= studentCount + 1; r++) {
-      formulaCells.push(["='S1'!A" + r, "='S1'!B" + r]);
+      formulaCells.push([
+        "=IF('S1'!A" + r + "=\"\",\"\",'S1'!A" + r + ")",
+        "=IF('S1'!B" + r + "=\"\",\"\",'S1'!B" + r + ")"
+      ]);
     }
     if (formulaCells.length > 0) {
       sheet.getRange(2, 1, formulaCells.length, 2).setFormulas(formulaCells);
@@ -374,12 +377,13 @@ function openHtmlManagerModal() {
           .btn-danger { background: #ef4444; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px; }
           
           .footer-actions { text-align: right; margin-top: 15px; }
+          .footer-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
           button.btn-primary { background-color: #3b5998; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 12px; }
           button.btn-primary:hover { opacity: 0.9; }
-          button.btn-cancel { background-color: #e0e0e0; color: #333; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 12px; margin-right: 8px; }
+          button.btn-cancel { background-color: #e0e0e0; color: #333; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 12px; }
           button.btn-secondary { background-color: #10b981; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 11px; }
           button.btn-secondary:hover { opacity: 0.9; }
-          button.btn-secondary-export { background-color: #f59e0b; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 11px; margin-left: 6px; }
+          button.btn-secondary-export { background-color: #f59e0b; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 11px; }
           button.btn-secondary-export:hover { opacity: 0.9; }
           
           #errorBox { color: #d32f2f; font-size: 11px; margin-top: 8px; display: none; background: #ffebee; padding: 6px; border-radius: 4px; }
@@ -410,11 +414,11 @@ function openHtmlManagerModal() {
           </div>
 
           <div class="footer-actions" style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px;">
-            <div>
+            <div style="display: flex; gap: 6px;">
               <button type="button" class="btn-secondary" onclick="triggerImportJson()" title="Importar JSON"><i class="fa-solid fa-file-import"></i> Importar JSON</button>
               <button type="button" class="btn-secondary-export" onclick="exportJson()" title="Exportar JSON"><i class="fa-solid fa-file-export"></i> Exportar JSON</button>
             </div>
-            <div>
+            <div style="display: flex; gap: 8px;">
               <button type="button" class="btn-cancel" onclick="google.script.host.close()">Cancelar</button>
               <button class="btn-primary" id="saveReorderBtn" onclick="saveAllChanges()"><i class="fa-solid fa-floppy-disk"></i> Guardar Cambios</button>
             </div>
@@ -913,6 +917,10 @@ function rebuildFormulasAndFormatting() {
   var sheet = getConsolidatedSheet();
   if (!sheet) return;
 
+  // 1. Limpiar/Alinear filas sobrantes o faltantes en todas las hojas primero
+  cleanEmptyRowsAllSheets();
+
+  // 2. Calcular índices y aplicar formatos y fórmulas
   var studentEndRow = getStudentRowsEndIndex(sheet);
   recalculateQuestionRangesAndFormulas(sheet);
   realignSessionHeaders(sheet);
@@ -935,9 +943,6 @@ function rebuildFormulasAndFormatting() {
   // Convertir los nombres de todas las sesiones (menos S1) a FÓRMULAS hacia S1,
   // para que apellidos y nombres sean SIEMPRE dinámicos.
   ensureDynamicNamesForAllSessions();
-
-  // Limpiar filas sobrantes automáticamente
-  cleanEmptyRowsAllSheets();
 
   // Actualizar texto inteligente del Curso (A1) con lo que esté después de '|'
   try {
@@ -1001,7 +1006,7 @@ function getStudentRowsEndIndex(sheet) {
     }
   } catch (e) { }
 
-  return lastRow - 2;
+  return 44; // Si no hay alumnos, el final de la tabla de estudiantes es la fila 44 (filas 4 a 43 para alumnos)
 }
 
 function getSubjectsBySession() {
@@ -1616,6 +1621,15 @@ function applyTableFormatting(sheet, studentEndRow) {
   var numRows = (studentEndRow + 1) - 3; // Incluye las filas de TOTAL y PROMEDIO
   if (numRows < 1) return;
 
+  // Asegurar que la hoja tenga suficientes filas antes de formatear para evitar errores Out of Bounds
+  var maxRows = sheet.getMaxRows();
+  var neededRows = studentEndRow + 1;
+  if (maxRows < neededRows) {
+    try {
+      sheet.insertRowsAfter(maxRows, neededRows - maxRows);
+    } catch (e) {}
+  }
+
   // Asignar color de pestaña azul oscuro #223459 para Consolidado
   try {
     sheet.setTabColor("#223459");
@@ -1676,7 +1690,10 @@ function applyTableFormatting(sheet, studentEndRow) {
     var nameFormulas = [];
     for (var r = 4; r < studentEndRow; r++) {
       var s1Row = r - 2; // Fila 4 de Consolidado -> Fila 2 de S1
-      nameFormulas.push(["='S1'!A" + s1Row, "='S1'!B" + s1Row]);
+      nameFormulas.push([
+        "=IF('S1'!A" + s1Row + "=\"\",\"\",'S1'!A" + s1Row + ")",
+        "=IF('S1'!B" + s1Row + "=\"\",\"\",'S1'!B" + s1Row + ")"
+      ]);
     }
     if (nameFormulas.length > 0) {
       sheet.getRange(4, 1, nameFormulas.length, 2).setFormulas(nameFormulas);
@@ -1822,13 +1839,43 @@ function applyConditionalFormattingRules(sheet, studentEndRow) {
   sheet.setConditionalFormatRules(rules);
 }
 
+function getValidStudentCount() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetS1 = ss.getSheetByName("S1") || ss.getSheetByName("s1");
+  if (!sheetS1) return 0;
+  var maxS1Rows = sheetS1.getLastRow();
+  var numStudents = 0;
+  if (maxS1Rows >= 2) {
+    var vals = sheetS1.getRange(2, 1, maxS1Rows - 1, 2).getValues();
+    for (var r = 0; r < vals.length; r++) {
+      var last = String(vals[r][0] || '').trim();
+      var first = String(vals[r][1] || '').trim();
+      if (last !== '' || first !== '' && !last.includes('#REF!') && !first.includes('#REF!')) {
+        numStudents = r + 1;
+      }
+    }
+  }
+  return numStudents;
+}
+
 function applySessionSheetFormatting(sheet) {
-  var lastRow = sheet.getLastRow();
-  var lastCol = sheet.getLastColumn();
-  if (lastRow < 1 || lastCol < 1) return;
+  var name = sheet.getName();
+  var numStudents = getValidStudentCount();
+  var targetStudentRows = (numStudents > 0) ? numStudents : 40;
+  var targetLastRow = 1 + targetStudentRows;
+
+  // Asegurar que la hoja tenga suficientes filas
+  var maxRows = sheet.getMaxRows();
+  if (maxRows < targetLastRow) {
+    try {
+      sheet.insertRowsAfter(maxRows, targetLastRow - maxRows);
+      maxRows = sheet.getMaxRows();
+    } catch (e) {}
+  }
+
+  var lastCol = Math.max(sheet.getLastColumn(), 2);
 
   // Asignar color de pestaña intercalado (Azul para S1/S3/etc. y Rojo para S2/S4/etc.)
-  var name = sheet.getName();
   var sessionNum = parseInt(name.replace(/\D/g, ""), 10);
   if (!isNaN(sessionNum)) {
     var tabColor = (sessionNum % 2 === 1) ? "#8D7BA6" : "#B23A48";
@@ -1837,18 +1884,14 @@ function applySessionSheetFormatting(sheet) {
     } catch (e) { }
   }
 
-  var maxRows = sheet.getMaxRows();
-  var maxCols = sheet.getMaxColumns();
-
-  // Limpiar bordes viejos SOLO en el rango activo (+1 fila) para evitar operaciones sobre toda la cuadrícula
-  var clearRows = Math.min(maxRows, lastRow + 1);
+  // Limpiar bordes viejos
   try {
-    sheet.getRange(1, 1, clearRows, lastCol).setBorder(false, false, false, false, false, false);
+    sheet.getRange(1, 1, maxRows, lastCol).setBorder(false, false, false, false, false, false);
   } catch (e) { }
 
-  // Aplicar bordes negros en el rango activo (#000000 en lugar del texto 'black' para evitar errores silenciosos)
+  // Aplicar bordes negros en el rango del diseño (de la cabecera a targetLastRow)
   try {
-    sheet.getRange(1, 1, lastRow, lastCol).setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID);
+    sheet.getRange(1, 1, targetLastRow, lastCol).setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID);
   } catch (e) { }
 
   // Centrar y dar formato a los encabezados de preguntas (fondo #35528C, letra blanca, negrita)
@@ -1859,7 +1902,7 @@ function applySessionSheetFormatting(sheet) {
         .setFontColor("#FFFFFF")
         .setFontWeight("bold")
         .setHorizontalAlignment("center");
-      sheet.getRange(2, 3, lastRow - 1, lastCol - 2).setHorizontalAlignment("center");
+      sheet.getRange(2, 3, targetLastRow - 1, lastCol - 2).setHorizontalAlignment("center");
     }
   } catch (e) { }
 
@@ -1868,7 +1911,7 @@ function applySessionSheetFormatting(sheet) {
   var sheetS1 = ss.getSheetByName("S1") || ss.getSheetByName("s1");
   if (sheetS1 && name.toUpperCase() !== "S1") {
     try {
-      var copyLimit = Math.min(lastRow, sheetS1.getLastRow());
+      var copyLimit = Math.min(targetLastRow, sheetS1.getLastRow());
       if (copyLimit >= 1) {
         var sourceRange = sheetS1.getRange(1, 1, copyLimit, 2);
         var targetRange = sheet.getRange(1, 1, copyLimit, 2);
@@ -1877,12 +1920,17 @@ function applySessionSheetFormatting(sheet) {
       sheet.setColumnWidth(1, sheetS1.getColumnWidth(1));
       sheet.setColumnWidth(2, sheetS1.getColumnWidth(2));
     } catch (e) { }
-  } else {
-    // Si es S1, aplicar formato básico o redimensionar según contenido
+  } else if (name.toUpperCase() === "S1") {
+    // Si es S1, aplicar el estilo correcto a los encabezados de A1 y B1
     try {
-      sheet.getRange(1, 1, 1, 2).setFontWeight("bold").setHorizontalAlignment("center");
-      sheet.autoResizeColumn(1);
-      sheet.autoResizeColumn(2);
+      sheet.getRange(1, 1, 1, 2)
+        .setBackground("#35528C")
+        .setFontColor("#FFFFFF")
+        .setFontWeight("bold")
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle");
+      sheet.setColumnWidth(1, 150);
+      sheet.setColumnWidth(2, 150);
     } catch (e) { }
   }
 }
@@ -2264,9 +2312,15 @@ function createSessionFromHtml(newSessName) {
   var sheetS1 = ss.getSheetByName("S1") || ss.getSheetByName("s1");
   if (sheetS1) {
     var lastRow1 = sheetS1.getLastRow();
+    var numStudents = getValidStudentCount();
+    var targetStudentRows = (numStudents > 0) ? numStudents : 40;
+    var lastLimit = Math.max(lastRow1, targetStudentRows + 1);
     var formulaCells = [];
-    for (var r = 2; r <= lastRow1; r++) {
-      formulaCells.push(["='S1'!A" + r, "='S1'!B" + r]);
+    for (var r = 2; r <= lastLimit; r++) {
+      formulaCells.push([
+        "=IF('S1'!A" + r + "=\"\",\"\",'S1'!A" + r + ")",
+        "=IF('S1'!B" + r + "=\"\",\"\",'S1'!B" + r + ")"
+      ]);
     }
     if (formulaCells.length > 0) {
       newSheet.getRange(2, 1, formulaCells.length, 2).setFormulas(formulaCells);
@@ -2363,7 +2417,10 @@ function syncSessionFromHtml(name) {
 
     var formulaCells = [];
     for (var r = 2; r <= newTargetData.length + 1; r++) {
-      formulaCells.push(["='S1'!A" + r, "='S1'!B" + r]);
+      formulaCells.push([
+        "=IF('S1'!A" + r + "=\"\",\"\",'S1'!A" + r + ")",
+        "=IF('S1'!B" + r + "=\"\",\"\",'S1'!B" + r + ")"
+      ]);
     }
     sheetTarget.getRange(2, 1, formulaCells.length, 2).setFormulas(formulaCells);
 
@@ -2446,32 +2503,8 @@ function highlightBestStudentOnly() {
 
 function cleanEmptyRowsAllSheets() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheetS1 = ss.getSheetByName("S1") || ss.getSheetByName("s1");
-
-  if (!sheetS1) {
-    var allSheets = ss.getSheets();
-    for (var i = 0; i < allSheets.length; i++) {
-      if (allSheets[i].getName().toUpperCase() !== "CONSOLIDADO") {
-        sheetS1 = allSheets[i];
-        break;
-      }
-    }
-  }
-
-  var numStudents = 0;
-  if (sheetS1) {
-    var maxS1Rows = sheetS1.getLastRow();
-    if (maxS1Rows >= 2) {
-      var vals = sheetS1.getRange(2, 1, maxS1Rows - 1, 2).getValues();
-      for (var r = 0; r < vals.length; r++) {
-        var last = String(vals[r][0] || '').trim();
-        var first = String(vals[r][1] || '').trim();
-        if (last !== '' || first !== '' && !last.includes('#REF!') && !first.includes('#REF!')) {
-          numStudents = r + 1; // Última fila válida con estudiante
-        }
-      }
-    }
-  }
+  
+  var numStudents = getValidStudentCount();
 
   // Si no hay nombres de estudiantes en S1, dejamos 40 filas disponibles por defecto
   var targetStudentRows = (numStudents > 0) ? numStudents : 40;
@@ -2487,6 +2520,11 @@ function cleanEmptyRowsAllSheets() {
         // En Consolidado: 3 filas de cabecera + targetStudentRows + 1 (TOTAL) + 1 (PROMEDIO)
         var targetLastRow = 3 + targetStudentRows + 2;
 
+        if (maxRows < targetLastRow) {
+          sheet.insertRowsAfter(maxRows, targetLastRow - maxRows);
+          maxRows = sheet.getMaxRows();
+        }
+
         if (maxRows > targetLastRow) {
           if (maxCols > 0) {
             sheet.getRange(targetLastRow + 1, 1, maxRows - targetLastRow, maxCols).clearContent().clearFormat();
@@ -2496,6 +2534,11 @@ function cleanEmptyRowsAllSheets() {
       } else {
         // En hojas de sesión (S1, S2, etc): 1 fila cabecera + targetStudentRows
         var targetLastRow = 1 + targetStudentRows;
+
+        if (maxRows < targetLastRow) {
+          sheet.insertRowsAfter(maxRows, targetLastRow - maxRows);
+          maxRows = sheet.getMaxRows();
+        }
 
         if (maxRows > targetLastRow) {
           if (maxCols > 0) {
