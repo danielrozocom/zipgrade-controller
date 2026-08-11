@@ -6,70 +6,89 @@
 // 1. Copy the code below and paste it into the 'Code.gs' file of your Google Sheet.
 // 2. Add the ZipGrade Controller Library to your Google Apps Script project.
 //    (Resource > Libraries > Add Library ID of ZipGrade Controller)
-// 3. Set the library identifier to 'ZipGradeController'.
+// 3. Set the library identifier to 'ZipGradeControllerMain'.
 
 function onOpen() {
-  ZipGradeController.onOpen();
+  ZipGradeControllerMain.onOpen();
 }
 
 function rebuildFormulasAndFormatting() {
-  ZipGradeController.rebuildFormulasAndFormatting();
+  ZipGradeControllerMain.rebuildFormulasAndFormatting();
 }
 
 function cleanEmptyRowsAllSheets() {
-  ZipGradeController.cleanEmptyRowsAllSheets();
+  ZipGradeControllerMain.cleanEmptyRowsAllSheets();
 }
 
 function highlightBestStudentOnly() {
-  ZipGradeController.highlightBestStudentOnly();
+  ZipGradeControllerMain.highlightBestStudentOnly();
+}
+
+function toggleSortConsolidado() {
+  ZipGradeControllerMain.toggleSortConsolidado();
 }
 
 function openHtmlManagerModal() {
-  ZipGradeController.openHtmlManagerModal();
+  ZipGradeControllerMain.openHtmlManagerModal();
 }
 
 function openHtmlSessionManagerModal() {
-  ZipGradeController.openHtmlSessionManagerModal();
+  ZipGradeControllerMain.openHtmlSessionManagerModal();
 }
 
 function gestionarSesionesNativo() {
-  ZipGradeController.gestionarSesionesNativo();
+  ZipGradeControllerMain.gestionarSesionesNativo();
 }
 
 function openExportJsonModal() {
-  ZipGradeController.openExportJsonModal();
+  ZipGradeControllerMain.openExportJsonModal();
 }
 
 function openImportJsonModal() {
-  ZipGradeController.openImportJsonModal();
+  ZipGradeControllerMain.openImportJsonModal();
 }
+
+function noSheetsAlert() {
+  ZipGradeControllerMain.noSheetsAlert();
+}
+
+function executeOption1() { ZipGradeControllerMain.processBySheetIndex(1); }
+function executeOption2() { ZipGradeControllerMain.processBySheetIndex(2); }
+function executeOption3() { ZipGradeControllerMain.processBySheetIndex(3); }
+function executeOption4() { ZipGradeControllerMain.processBySheetIndex(4); }
+function executeOption5() { ZipGradeControllerMain.processBySheetIndex(5); }
+function executeOption6() { ZipGradeControllerMain.processBySheetIndex(6); }
+function executeOption7() { ZipGradeControllerMain.processBySheetIndex(7); }
+function executeOption8() { ZipGradeControllerMain.processBySheetIndex(8); }
+function executeOption9() { ZipGradeControllerMain.processBySheetIndex(9); }
+function executeOption10() { ZipGradeControllerMain.processBySheetIndex(10); }
 
 // ============================================================================
 // HTML DIALOG SERVER-SIDE BRIDGE FUNCTIONS
 // ============================================================================
 
 function executeCreateFromHtml(data) {
-  return ZipGradeController.executeCreateFromHtml(data);
+  return ZipGradeControllerMain.executeCreateFromHtml(data);
 }
 
 function executeFullSyncFromHtml(updatedSubjectsList) {
-  return ZipGradeController.executeFullSyncFromHtml(updatedSubjectsList);
+  return ZipGradeControllerMain.executeFullSyncFromHtml(updatedSubjectsList);
 }
 
 function createSessionFromHtml(name) {
-  return ZipGradeController.createSessionFromHtml(name);
+  return ZipGradeControllerMain.createSessionFromHtml(name);
 }
 
 function deleteSessionFromHtml(name) {
-  return ZipGradeController.deleteSessionFromHtml(name);
+  return ZipGradeControllerMain.deleteSessionFromHtml(name);
 }
 
 function syncSessionFromHtml(name) {
-  return ZipGradeController.syncSessionFromHtml(name);
+  return ZipGradeControllerMain.syncSessionFromHtml(name);
 }
 
 function executeJsonImport(jsonString) {
-  return ZipGradeController.executeJsonImport(jsonString);
+  return ZipGradeControllerMain.executeJsonImport(jsonString);
 }
 
 // ============================================================================
@@ -85,8 +104,8 @@ function executeJsonImport(jsonString) {
  * @return {*} The result returned by the library function.
  */
 function callLibrary(functionName, args) {
-  if (typeof ZipGradeController !== 'undefined' && ZipGradeController[functionName]) {
-    return ZipGradeController[functionName].apply(null, args || []);
+  if (typeof ZipGradeControllerMain !== 'undefined' && ZipGradeControllerMain[functionName]) {
+    return ZipGradeControllerMain[functionName].apply(null, args || []);
   }
-  throw new Error("The library or function '" + functionName + "' is not defined in the ZipGradeController library.");
+  throw new Error("The library or function '" + functionName + "' is not defined in the ZipGradeControllerMain library.");
 }

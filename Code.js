@@ -11,7 +11,9 @@ function onOpen() {
   var ui = SpreadsheetApp.getUi();
 
   try {
-    rebuildFormulasAndFormatting();
+    if (!isSpreadsheetStructureValid()) {
+      rebuildFormulasAndFormatting();
+    }
   } catch (e) {
     console.log("Deferred initialization: " + e.message);
   }
@@ -19,17 +21,14 @@ function onOpen() {
   // --- SUBMENU 1: ZipGrade ---
   var zipGradeMenu = ui.createMenu('📝 ZipGrade');
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheets = ss.getSheets();
-  var excludedSheets = ["SHEET1", "CONSOLIDADO"];
+  var targetSheets = getSessionTargetSheets();
   var addedCount = 0;
 
-  for (var i = 0; i < sheets.length; i++) {
-    var sheetName = sheets[i].getName();
-    if (excludedSheets.indexOf(sheetName.toUpperCase()) === -1) {
-      addedCount++;
-      if (addedCount <= 10) {
-        zipGradeMenu.addItem('➡️ Enviar a: ' + sheetName, 'executeOption' + addedCount);
-      }
+  for (var i = 0; i < targetSheets.length; i++) {
+    var sheetName = targetSheets[i];
+    addedCount++;
+    if (addedCount <= 10) {
+      zipGradeMenu.addItem('➡️ Enviar a: ' + sheetName, 'executeOption' + addedCount);
     }
   }
 
@@ -42,6 +41,7 @@ function onOpen() {
     .addItem('⚡ Recalcular y Corregir Fórmulas', 'rebuildFormulasAndFormatting')
     .addItem('🧹 Limpiar Filas Vacías', 'cleanEmptyRowsAllSheets')
     .addItem('🏆 Resaltar Mejor Promedio', 'highlightBestStudentOnly')
+    .addItem('🔢 Ordenar por Total / Restaurar Alfabético', 'toggleSortConsolidado')
     .addSeparator()
     .addItem('📚 Gestión de Asignaturas', 'openHtmlManagerModal')
     .addItem('📂 Gestión de Sesiones', 'openHtmlSessionManagerModal')
@@ -70,30 +70,55 @@ function executeOption9() { processBySheetIndex(9); }
 function executeOption10() { processBySheetIndex(10); }
 
 function processBySheetIndex(index) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheets = ss.getSheets();
-  var excludedSheets = ["SHEET1", "CONSOLIDADO"];
-  var validSheets = [];
-
-  for (var i = 0; i < sheets.length; i++) {
-    var sheetName = sheets[i].getName();
-    if (excludedSheets.indexOf(sheetName.toUpperCase()) === -1) {
-      validSheets.push(sheetName);
-    }
-  }
-
+  var validSheets = getSessionTargetSheets();
   if (index > validSheets.length) return;
   var targetSheetName = validSheets[index - 1];
   processZipGradeData(targetSheetName);
+}
+
+function getSessionTargetSheets() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheets = ss.getSheets();
+  var validSheets = [];
+  for (var i = 0; i < sheets.length; i++) {
+    var name = sheets[i].getName().trim();
+    if (/^S\d+$/i.test(name)) {
+      validSheets.push(name);
+    }
+  }
+  return validSheets;
 }
 
 // ============================================================================
 // 2. ZIPGRADE MODULE (VALIDACIÓN S1 Y S2)
 // ============================================================================
 
+function getSourceDataSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheets = ss.getSheets();
+
+  // 1. Preferencia: hoja llamada Sheet1 (cualquier combinación de mayúsculas/minúsculas)
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].getName().toUpperCase() === "SHEET1") {
+      return sheets[i];
+    }
+  }
+
+  // 2. Fallback: primera hoja que no sea sesión (S#) ni Consolidado
+  for (var i = 0; i < sheets.length; i++) {
+    var name = sheets[i].getName().toUpperCase();
+    if (name.indexOf("CONSOLID") !== -1) continue;
+    if (/^S\d+$/.test(name)) continue;
+    return sheets[i];
+  }
+
+  // 3. Último recurso: hoja activa
+  return ss.getActiveSheet();
+}
+
 function processZipGradeData(targetSheetName) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sourceSheet = ss.getSheetByName("Sheet1");
+  var sourceSheet = getSourceDataSheet();
   var targetSheet = ss.getSheetByName(targetSheetName);
   var ui = SpreadsheetApp.getUi();
 
@@ -109,7 +134,7 @@ function processZipGradeData(targetSheetName) {
   });
 
   if (filteredData.length === 0) {
-    ss.toast("No hay estudiantes válidos en Sheet1.", "⚠️ Error", 4);
+    ss.toast("No hay estudiantes válidos en " + sourceSheet.getName() + ".", "⚠️ Error", 4);
     return;
   }
 
@@ -913,6 +938,66 @@ function executeFullSyncFromHtml(updatedSubjectsList) {
 // 4. MOTOR ULTRARRÁPIDO DE FÓRMULAS Y FORMATO DE TABLA
 // ============================================================================
 
+function isSpreadsheetStructureValid() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = getConsolidatedSheet();
+  if (!sheet) return false;
+
+  var studentEndRow = getStudentRowsEndIndex(sheet);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < studentEndRow + 1) return false;
+
+  // Verificar que TOTAL y PROMEDIO estén en su posición correcta
+  var totalVal = String(sheet.getRange(studentEndRow, 1).getValue() || '').trim().toUpperCase();
+  var avgVal = String(sheet.getRange(studentEndRow + 1, 1).getValue() || '').trim().toUpperCase();
+  if (totalVal !== 'TOTAL' || avgVal !== 'PROMEDIO') return false;
+
+  // Verificar que los nombres de estudiantes sean fórmulas hacia S1
+  try {
+    var formulaA = sheet.getRange(4, 1).getFormula();
+    var formulaB = sheet.getRange(4, 2).getFormula();
+    if (!formulaA || formulaA.indexOf('S1') === -1 || !formulaB || formulaB.indexOf('S1') === -1) {
+      return false;
+    }
+  } catch (e) {
+    return false;
+  }
+
+  // Verificar que las filas TOTAL y PROMEDIO tengan fórmulas y formato de número
+  try {
+    var totalF = sheet.getRange(studentEndRow, 3).getFormula();
+    var avgF = sheet.getRange(studentEndRow + 1, 3).getFormula();
+    if (String(totalF || '').indexOf('=') !== 0 || String(avgF || '').indexOf('=') !== 0) {
+      return false;
+    }
+    var avgFmt = sheet.getRange(studentEndRow + 1, 3).getNumberFormat();
+    if (String(avgFmt || '').indexOf('0.00') === -1) {
+      return false;
+    }
+  } catch (e) {
+    return false;
+  }
+
+  // Verificar que existan las columnas TOTAL y PROMEDIO
+  var lastCol = sheet.getLastColumn();
+  var row1Vals = readRowValues(sheet, 1, lastCol);
+  var row2Vals = readRowValues(sheet, 2, lastCol);
+  var totalCol = findTotalColFromRows(row1Vals, row2Vals, lastCol);
+  if (totalCol === -1) return false;
+
+  var hasAvg = false;
+  for (var c = 0; c < lastCol; c++) {
+    if (String(row1Vals[c] || '').toUpperCase().indexOf('PROMEDIO') !== -1 ||
+        String(row2Vals[c] || '').toUpperCase().indexOf('PROMEDIO') !== -1) {
+      hasAvg = true;
+      break;
+    }
+  }
+  if (!hasAvg) return false;
+
+  return true;
+}
+
 function rebuildFormulasAndFormatting() {
   var sheet = getConsolidatedSheet();
   if (!sheet) return;
@@ -957,6 +1042,7 @@ function rebuildFormulasAndFormatting() {
   realignSessionHeaders(sheet);
   updateCalculatedColumns(sheet, studentEndRow);
   applyTableFormatting(sheet, studentEndRow);
+  ensureTotalAverageRows(sheet, studentEndRow);
 
   // Formatear automáticamente todas las hojas de sesiones activas
   try {
@@ -1617,6 +1703,50 @@ function updateCalculatedColumns(sheet, studentEndRow) {
   } catch (e) { }
 }
 
+function ensureTotalAverageRows(sheet, studentEndRow) {
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < 3) return;
+
+  var totalRow = studentEndRow;
+  var avgRow = studentEndRow + 1;
+
+  // Asegurar suficientes filas antes de escribir las fórmulas
+  var maxRows = sheet.getMaxRows();
+  if (maxRows < avgRow) {
+    try {
+      sheet.insertRowsAfter(maxRows, avgRow - maxRows);
+    } catch (e) { }
+  }
+
+  var avgCol = findAverageColIndex(sheet);
+  var lastDataCol = (avgCol > 0) ? avgCol : lastCol;
+
+  var totalFormulas = [];
+  var avgFormulas = [];
+  var endRow = totalRow - 1;
+  for (var col = 3; col <= lastDataCol; col++) {
+    var colLetter = convertColToLetter(col);
+    totalFormulas.push("=SUM(" + colLetter + "4:" + colLetter + endRow + ")");
+    avgFormulas.push("=AVERAGE(" + colLetter + "4:" + colLetter + endRow + ")");
+  }
+  if (totalFormulas.length === 0) return;
+
+  var rangeT = sheet.getRange(totalRow, 3, 1, totalFormulas.length);
+  var rangeA = sheet.getRange(avgRow, 3, 1, avgFormulas.length);
+
+  try {
+    rangeT.setFormulas([totalFormulas]);
+    rangeA.setFormulas([avgFormulas]);
+  } catch (e) { }
+
+  try {
+    rangeT.setBackground("#93ABD9").setFontColor("#FFFFFF").setFontWeight("normal")
+      .setFontSize(12).setFontFamily("Nunito").setHorizontalAlignment("center").setVerticalAlignment("middle").setNumberFormat("0");
+    rangeA.setBackground("#D9E1F2").setFontColor("#000000").setFontWeight("normal")
+      .setFontSize(12).setFontFamily("Nunito").setHorizontalAlignment("center").setVerticalAlignment("middle").setNumberFormat("0.00");
+  } catch (e) { }
+}
+
 function applyTableFormatting(sheet, studentEndRow) {
   var lastCol = sheet.getLastColumn();
   var numRows = (studentEndRow + 1) - 3; // Incluye las filas de TOTAL y PROMEDIO
@@ -1637,10 +1767,10 @@ function applyTableFormatting(sheet, studentEndRow) {
     sheet.setTabColor("#223459");
   } catch (e) { }
 
-  // Auto-ajustar columnas A y B al contenido
+  // Fijar ancho fijo de 175 para las columnas A y B
   try {
-    sheet.autoResizeColumn(1);
-    sheet.autoResizeColumn(2);
+    sheet.setColumnWidth(1, 175);
+    sheet.setColumnWidth(2, 175);
   } catch (e) { }
 
   // Detectar columna TOTAL dinámicamente (lectura en bloque)
@@ -1667,6 +1797,16 @@ function applyTableFormatting(sheet, studentEndRow) {
       sourceRange.copyTo(targetRange, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
     } catch (e) { }
   }
+
+  // Toda la zona de datos (estudiantes + TOTAL + PROMEDIO) en fuente Nunito y tamaño 12
+  try {
+    sheet.getRange(4, 1, numRows, lastCol).setFontSize(12).setFontFamily("Nunito");
+  } catch (e) { }
+
+  // Fuente Nunito en las cabeceras (filas 1 a 3)
+  try {
+    sheet.getRange(1, 1, 3, lastCol).setFontFamily("Nunito");
+  } catch (e) { }
 
   // Bordes negros a las cabeceras (filas 1, 2 y 3)
   var headerRange = sheet.getRange(1, 1, 3, lastCol);
@@ -1721,6 +1861,7 @@ function applyTableFormatting(sheet, studentEndRow) {
       .setBackground("#93ABD9")
       .setFontColor("#FFFFFF")
       .setFontWeight("bold")
+      .setFontSize(12)
       .setHorizontalAlignment("center")
       .setVerticalAlignment("middle");
 
@@ -1728,6 +1869,7 @@ function applyTableFormatting(sheet, studentEndRow) {
       .setBackground("#93ABD9")
       .setFontColor("#FFFFFF")
       .setFontWeight("normal")
+      .setFontSize(12)
       .setHorizontalAlignment("center")
       .setVerticalAlignment("middle")
       .setNumberFormat("0");
@@ -1740,6 +1882,7 @@ function applyTableFormatting(sheet, studentEndRow) {
       .setBackground("#223459")
       .setFontColor("#FFFFFF")
       .setFontWeight("bold")
+      .setFontSize(12)
       .setHorizontalAlignment("center")
       .setVerticalAlignment("middle");
 
@@ -1748,6 +1891,7 @@ function applyTableFormatting(sheet, studentEndRow) {
       .setBackground("#D9E1F2")
       .setFontColor("#000000")
       .setFontWeight("normal")
+      .setFontSize(12)
       .setHorizontalAlignment("center")
       .setVerticalAlignment("middle")
       .setNumberFormat("0.00");
@@ -1762,6 +1906,15 @@ function applyTableFormatting(sheet, studentEndRow) {
       .setBackground("#93ABD9")
       .setFontColor("#FFFFFF")
       .setFontWeight("normal")
+      .setFontSize(12)
+      .setHorizontalAlignment("center")
+      .setVerticalAlignment("middle");
+  }
+
+  // Columna PROMEDIO vertical (estudiantes): tamaño de fuente 12
+  if (avgCol > 0) {
+    sheet.getRange(4, avgCol, studentEndRow - 4, 1)
+      .setFontSize(12)
       .setHorizontalAlignment("center")
       .setVerticalAlignment("middle");
   }
@@ -1914,6 +2067,11 @@ function applySessionSheetFormatting(sheet) {
     sheet.getRange(1, 1, targetLastRow, lastCol).setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID);
   } catch (e) { }
 
+  // Fuente Nunito en toda la hoja de sesión
+  try {
+    sheet.getRange(1, 1, targetLastRow, lastCol).setFontFamily("Nunito");
+  } catch (e) { }
+
   // Centrar y dar formato a los encabezados de preguntas (fondo #35528C, letra blanca, negrita)
   try {
     if (lastCol >= 3) {
@@ -1937,8 +2095,8 @@ function applySessionSheetFormatting(sheet) {
         var targetRange = sheet.getRange(1, 1, copyLimit, 2);
         sourceRange.copyTo(targetRange, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
       }
-      sheet.setColumnWidth(1, sheetS1.getColumnWidth(1));
-      sheet.setColumnWidth(2, sheetS1.getColumnWidth(2));
+      sheet.setColumnWidth(1, 175);
+      sheet.setColumnWidth(2, 175);
     } catch (e) { }
   } else if (name.toUpperCase() === "S1") {
     // Si es S1, aplicar el estilo correcto a los encabezados de A1 y B1
@@ -1949,8 +2107,8 @@ function applySessionSheetFormatting(sheet) {
         .setFontWeight("bold")
         .setHorizontalAlignment("center")
         .setVerticalAlignment("middle");
-      sheet.setColumnWidth(1, 150);
-      sheet.setColumnWidth(2, 150);
+      sheet.setColumnWidth(1, 175);
+      sheet.setColumnWidth(2, 175);
     } catch (e) { }
   }
 }
@@ -2515,6 +2673,215 @@ function highlightBestStudentOnly() {
   } else {
     SpreadsheetApp.getUi().alert("Aviso", "No se encontraron promedios mayores a 0 para resaltar.", SpreadsheetApp.getUi().ButtonSet.OK);
   }
+}
+
+function toggleSortConsolidado() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = getConsolidatedSheet();
+  if (!sheet) {
+    ss.toast("No se encontró la hoja Consolidado.", "⚠️ Error", 3);
+    return;
+  }
+
+  var studentEndRow = findConsolidadoTotalRow(sheet);
+  if (studentEndRow === -1) {
+    studentEndRow = getStudentRowsEndIndex(sheet);
+  }
+  var numStudents = studentEndRow - 4;
+  if (numStudents < 2) {
+    ss.toast("No hay suficientes estudiantes para ordenar.", "⚠️ Aviso", 3);
+    return;
+  }
+
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < 3) return;
+
+  var row1Vals = readRowValues(sheet, 1, lastCol);
+  var row2Vals = readRowValues(sheet, 2, lastCol);
+  var totalCol = findTotalColFromRows(row1Vals, row2Vals, lastCol);
+  if (totalCol === -1) {
+    ss.toast("No se encontró la columna TOTAL.", "⚠️ Error", 3);
+    return;
+  }
+
+  var preserveHighlight = hasBestStudentHighlight(sheet, numStudents);
+  var bestAvgValue = preserveHighlight ? getBestAverageValue(sheet, studentEndRow) : null;
+
+  var range = sheet.getRange(4, 1, numStudents, lastCol);
+
+  if (isConsolidadoAlphabetical(sheet, numStudents)) {
+    range.sort({ column: totalCol, ascending: false });
+    reapplyStudentRowFormatting(sheet, studentEndRow, totalCol);
+    ensureTotalAverageRows(sheet, studentEndRow);
+    if (bestAvgValue !== null) reapplyBestStudentHighlight(sheet, studentEndRow, bestAvgValue);
+    ss.toast("Consolidado ordenado por TOTAL (de mayor a menor).", "🔽 Orden por Total", 3);
+  } else {
+    range.sort({ column: 1, ascending: true });
+    reapplyStudentRowFormatting(sheet, studentEndRow, totalCol);
+    ensureTotalAverageRows(sheet, studentEndRow);
+    if (bestAvgValue !== null) reapplyBestStudentHighlight(sheet, studentEndRow, bestAvgValue);
+    ss.toast("Consolidado restaurado al orden alfabético por apellidos.", "🔤 Orden Alfabético", 3);
+  }
+}
+
+function findConsolidadoTotalRow(sheet) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 4) return -1;
+  var valsA = sheet.getRange(1, 1, lastRow, 1).getValues();
+  for (var r = 3; r < lastRow; r++) {
+    if (String(valsA[r][0] || '').trim().toUpperCase() === 'TOTAL') {
+      return r + 1;
+    }
+  }
+  return -1;
+}
+
+function hasBestStudentHighlight(sheet, numStudents) {
+  try {
+    var colors = sheet.getRange(4, 1, numStudents, 2).getBackgrounds();
+    for (var i = 0; i < colors.length; i++) {
+      if (String(colors[i][0]).toUpperCase() === "#9FC5E8" || String(colors[i][1]).toUpperCase() === "#9FC5E8") {
+        return true;
+      }
+    }
+  } catch (e) { }
+  return false;
+}
+
+function findAverageColIndex(sheet) {
+  var lastCol = sheet.getLastColumn();
+  var row1Vals = readRowValues(sheet, 1, lastCol);
+  var row2Vals = readRowValues(sheet, 2, lastCol);
+  for (var c = 0; c < lastCol; c++) {
+    var v1 = String(row1Vals[c] || '').toUpperCase();
+    var v2 = String(row2Vals[c] || '').toUpperCase();
+    if (v1.indexOf('PROMEDIO') !== -1 || v2.indexOf('PROMEDIO') !== -1) {
+      return c + 1;
+    }
+  }
+  return -1;
+}
+
+function getBestAverageValue(sheet, studentEndRow) {
+  var avgCol = findAverageColIndex(sheet);
+  if (avgCol === -1) return null;
+  var numStudents = studentEndRow - 4;
+  if (numStudents < 1) return null;
+  var avgValues = sheet.getRange(4, avgCol, numStudents, 1).getValues();
+  var maxVal = -1;
+  for (var i = 0; i < avgValues.length; i++) {
+    var val = parseFloat(avgValues[i][0]);
+    if (!isNaN(val) && val > maxVal) maxVal = val;
+  }
+  return (maxVal > 0) ? maxVal : null;
+}
+
+function reapplyBestStudentHighlight(sheet, studentEndRow, bestVal) {
+  var avgCol = findAverageColIndex(sheet);
+  if (avgCol === -1) return;
+  var numStudents = studentEndRow - 4;
+  if (numStudents < 1) return;
+  var avgValues = sheet.getRange(4, avgCol, numStudents, 1).getValues();
+  for (var i = 0; i < avgValues.length; i++) {
+    var val = parseFloat(avgValues[i][0]);
+    if (!isNaN(val) && val === bestVal) {
+      var studentRow = 4 + i;
+      sheet.getRange(studentRow, 1, 1, 2).setBackground("#9FC5E8");
+    }
+  }
+}
+
+function isConsolidadoAlphabetical(sheet, numStudents) {
+  var names = sheet.getRange(4, 1, numStudents, 1).getValues();
+  for (var i = 1; i < names.length; i++) {
+    var prev = normalizeNameKey(names[i - 1][0]);
+    var curr = normalizeNameKey(names[i][0]);
+    if (prev && curr && prev > curr) return false;
+  }
+  return true;
+}
+
+function reapplyStudentRowFormatting(sheet, studentEndRow, totalCol) {
+  var numStudentRows = studentEndRow - 4;
+  var lastCol = sheet.getLastColumn();
+  if (numStudentRows <= 0 || lastCol <= 0) return;
+
+  // Restaurar formato (fuente, alineación, bordes) copiando la fila 4 a las demás
+  try {
+    if (numStudentRows > 1) {
+      var src = sheet.getRange(4, 1, 1, lastCol);
+      var dst = sheet.getRange(5, 1, numStudentRows - 1, lastCol);
+      src.copyTo(dst, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    }
+  } catch (e) { }
+
+  // Fondo intercalado (blanco/gris) manteniendo la columna TOTAL en azul
+  var bgMatrix = [];
+  for (var row = 4; row < studentEndRow; row++) {
+    var bg = (row % 2 === 0) ? "#FFFFFF" : "#F3F3F3";
+    var rowArr = [];
+    for (var col = 1; col <= lastCol; col++) {
+      rowArr.push((col === totalCol) ? "#93ABD9" : bg);
+    }
+    bgMatrix.push(rowArr);
+  }
+  sheet.getRange(4, 1, numStudentRows, lastCol).setBackgrounds(bgMatrix);
+
+  // Fuente Nunito en toda la zona de estudiantes
+  try {
+    sheet.getRange(4, 1, numStudentRows, lastCol).setFontFamily("Nunito");
+  } catch (e) { }
+
+  // Bordes negros completos para no perder el subrayado/grid al reordenar
+  try {
+    sheet.getRange(4, 1, numStudentRows, lastCol)
+      .setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID);
+  } catch (e) { }
+
+  // Columna TOTAL: fondo azul y letra blanca en las filas de estudiantes
+  if (totalCol > 0) {
+    try {
+      sheet.getRange(4, totalCol, numStudentRows, 1)
+        .setBackground("#93ABD9")
+        .setFontColor("#FFFFFF")
+        .setFontSize(12)
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle");
+    } catch (e) { }
+  }
+
+  // Columna PROMEDIO vertical (estudiantes): tamaño de fuente 12
+  var avgCol = findAverageColIndex(sheet);
+  if (avgCol > 0) {
+    try {
+      sheet.getRange(4, avgCol, numStudentRows, 1)
+        .setFontSize(12)
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle");
+    } catch (e) { }
+  }
+
+  // Fila TOTAL horizontal: mantener fondo azul, letra blanca y tamaño 12
+  try {
+    sheet.getRange(studentEndRow, 3, 1, lastCol - 2)
+      .setBackground("#93ABD9")
+      .setFontColor("#FFFFFF")
+      .setFontSize(12)
+      .setHorizontalAlignment("center")
+      .setVerticalAlignment("middle")
+      .setNumberFormat("0");
+  } catch (e) { }
+
+  // Fila PROMEDIO horizontal: mantener fondo #D9E1F2, letra negra y tamaño 12
+  try {
+    sheet.getRange(studentEndRow + 1, 3, 1, lastCol - 2)
+      .setBackground("#D9E1F2")
+      .setFontColor("#000000")
+      .setFontSize(12)
+      .setHorizontalAlignment("center")
+      .setVerticalAlignment("middle")
+      .setNumberFormat("0.00");
+  } catch (e) { }
 }
 
 // ============================================================================
