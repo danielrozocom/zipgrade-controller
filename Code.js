@@ -1744,6 +1744,21 @@ function ensureTotalAverageRows(sheet, studentEndRow) {
       .setFontSize(12).setFontFamily("Nunito").setHorizontalAlignment("center").setVerticalAlignment("middle").setNumberFormat("0");
     rangeA.setBackground("#D9E1F2").setFontColor("#000000").setFontWeight("normal")
       .setFontSize(12).setFontFamily("Nunito").setHorizontalAlignment("center").setVerticalAlignment("middle").setNumberFormat("0.00");
+
+    var row1Vals = readRowValues(sheet, 1, lastCol);
+    var row2Vals = readRowValues(sheet, 2, lastCol);
+    var totalCol = findTotalColFromRows(row1Vals, row2Vals, lastCol);
+    if (totalCol > 0) {
+      sheet.getRange(avgRow, totalCol)
+        .setBackground("#93ABD9")
+        .setFontColor("#FFFFFF")
+        .setFontWeight("normal")
+        .setFontSize(12)
+        .setFontFamily("Nunito")
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle")
+        .setNumberFormat("0.00");
+    }
   } catch (e) { }
 }
 
@@ -1816,15 +1831,18 @@ function applyTableFormatting(sheet, studentEndRow) {
   var numStudentRows = studentEndRow - 4;
   if (numStudentRows > 0 && lastCol > 0) {
     var bgMatrix = [];
+    var nameBgs = [];
     for (var row = 4; row < studentEndRow; row++) {
       var bg = (row % 2 === 0) ? "#FFFFFF" : "#F3F3F3";
       var rowArr = [];
       for (var col = 1; col <= lastCol; col++) {
-        rowArr.push(bg);
+        rowArr.push((col === totalCol) ? "#93ABD9" : bg);
       }
       bgMatrix.push(rowArr);
+      nameBgs.push([bg, bg]);
     }
     sheet.getRange(4, 1, numStudentRows, lastCol).setBackgrounds(bgMatrix);
+    sheet.getRange(4, 1, numStudentRows, 2).setBackgrounds(nameBgs);
   }
 
   // Columna TOTAL vertical: aplicar fondo #93ABD9 y letra blanca para filas de estudiantes
@@ -2622,19 +2640,12 @@ function highlightBestStudentOnly() {
     SpreadsheetApp.getUi().alert("Error", "No se encontró la hoja Consolidado.", SpreadsheetApp.getUi().ButtonSet.OK);
     return;
   }
-  var studentEndRow = getStudentRowsEndIndex(sheet);
-
-  // Buscar columna de PROMEDIO dinámicamente en Fila 1 y Fila 2, obteniendo la última (ej. J)
-  var lastCol = sheet.getLastColumn();
-  var avgCol = -1;
-  for (var c = 1; c <= lastCol; c++) {
-    var val1 = String(sheet.getRange(1, c).getValue() || '').toUpperCase();
-    var val2 = String(sheet.getRange(2, c).getValue() || '').toUpperCase();
-    if (val1.includes('PROMEDIO') || val2.includes('PROMEDIO')) {
-      avgCol = c; // No usamos break para quedarnos con el último promedio si varía de posición
-    }
+  var studentEndRow = findConsolidadoTotalRow(sheet);
+  if (studentEndRow === -1) {
+    studentEndRow = getStudentRowsEndIndex(sheet);
   }
 
+  var avgCol = findAverageColIndex(sheet);
   if (avgCol === -1 || studentEndRow <= 4) {
     SpreadsheetApp.getUi().alert("Error", "No se encontró la columna de PROMEDIO o no hay estudiantes registrados.", SpreadsheetApp.getUi().ButtonSet.OK);
     return;
@@ -2652,10 +2663,25 @@ function highlightBestStudentOnly() {
     }
   }
 
-  // Restablecer el fondo de las columnas A y B de estudiantes a blanco
-  sheet.getRange(4, 1, numStudents, 2).setBackground("#FFFFFF");
+  // Generar matriz de cebra limpia para columnas A y B
+  var nameBgs = [];
+  for (var i = 0; i < numStudents; i++) {
+    var r = 4 + i;
+    var bg = (r % 2 === 0) ? "#FFFFFF" : "#F3F3F3";
+    nameBgs.push([bg, bg]);
+  }
 
-  // Si hay un promedio máximo válido, resaltar
+  // Si ya tiene estudiantes resaltados, toggle para remover el resaltado y restaurar la cebra
+  if (hasBestStudentHighlight(sheet, numStudents)) {
+    sheet.getRange(4, 1, numStudents, 2).setBackgrounds(nameBgs);
+    SpreadsheetApp.getActiveSpreadsheet().toast('Resaltado removido. Se restauró el formato cebra.', 'Aviso', 3);
+    return;
+  }
+
+  // Restablecer el fondo de las columnas A y B con la cebra base
+  sheet.getRange(4, 1, numStudents, 2).setBackgrounds(nameBgs);
+
+  // Si hay un promedio máximo válido, resaltar solo a los estudiantes con la nota máxima
   var count = 0;
   if (maxVal > 0) {
     for (var i = 0; i < avgValues.length; i++) {
@@ -2817,6 +2843,7 @@ function reapplyStudentRowFormatting(sheet, studentEndRow, totalCol) {
 
   // Fondo intercalado (blanco/gris) manteniendo la columna TOTAL en azul
   var bgMatrix = [];
+  var nameBgs = [];
   for (var row = 4; row < studentEndRow; row++) {
     var bg = (row % 2 === 0) ? "#FFFFFF" : "#F3F3F3";
     var rowArr = [];
@@ -2824,8 +2851,10 @@ function reapplyStudentRowFormatting(sheet, studentEndRow, totalCol) {
       rowArr.push((col === totalCol) ? "#93ABD9" : bg);
     }
     bgMatrix.push(rowArr);
+    nameBgs.push([bg, bg]);
   }
   sheet.getRange(4, 1, numStudentRows, lastCol).setBackgrounds(bgMatrix);
+  sheet.getRange(4, 1, numStudentRows, 2).setBackgrounds(nameBgs);
 
   // Fuente Nunito en toda la zona de estudiantes
   try {
@@ -2872,7 +2901,7 @@ function reapplyStudentRowFormatting(sheet, studentEndRow, totalCol) {
       .setNumberFormat("0");
   } catch (e) { }
 
-  // Fila PROMEDIO horizontal: mantener fondo #D9E1F2, letra negra y tamaño 12
+  // Fila PROMEDIO horizontal: mantener fondo #D9E1F2, letra negra y tamaño 12, con columna TOTAL en #93ABD9 letra blanca
   try {
     sheet.getRange(studentEndRow + 1, 3, 1, lastCol - 2)
       .setBackground("#D9E1F2")
@@ -2881,6 +2910,18 @@ function reapplyStudentRowFormatting(sheet, studentEndRow, totalCol) {
       .setHorizontalAlignment("center")
       .setVerticalAlignment("middle")
       .setNumberFormat("0.00");
+
+    if (totalCol > 0) {
+      sheet.getRange(studentEndRow + 1, totalCol)
+        .setBackground("#93ABD9")
+        .setFontColor("#FFFFFF")
+        .setFontWeight("normal")
+        .setFontSize(12)
+        .setFontFamily("Nunito")
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle")
+        .setNumberFormat("0.00");
+    }
   } catch (e) { }
 }
 
