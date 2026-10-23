@@ -49,9 +49,12 @@ Para que el sistema funcione correctamente, el libro de cálculo debe cumplir es
 - El sistema ordena los datos alfabéticamente por apellido antes de procesarlos.
 
 ### 5. Regla del Nombre del Archivo (Texto del Curso)
-- La celda **A1 del Consolidado** muestra el curso.
-- Se toma automáticamente de lo que esté **después del carácter `|`** en el nombre del archivo.
+- La celda **A1 del Consolidado** muestra el curso de forma 100% dinámica.
+- Se extrae automáticamente de lo que esté **después del carácter `|`** en el nombre del libro de cálculo (sin importar el prefijo que tenga antes, ya sea `R_PENSAR`, `E.S.A.S`, `ZipGrade`, etc.):
+  - Ejemplo: `R_PENSAR | 3° - 5°` → A1 = `3° - 5°`.
+  - Ejemplo: `E.S.A.S | 601` → A1 = `601`.
   - Ejemplo: `ZipGrade - 9°A | MATEMÁTICAS` → A1 = `MATEMÁTICAS`.
+- Se actualiza automáticamente tanto al abrir el documento (`onOpen`) como al recalcular (`⚡ Recalcular y Corregir Fórmulas`).
 
 ### 6. Condiciones de Validación (si no se cumplen, el sistema avisa)
 - Debe existir una hoja Consolidado y las filas TOTAL/PROMEDIO en su posición.

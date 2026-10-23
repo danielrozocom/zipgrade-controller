@@ -13,6 +13,9 @@ function onOpen() {
   try {
     if (!isSpreadsheetStructureValid()) {
       rebuildFormulasAndFormatting();
+    } else {
+      // Sincronizar siempre el nombre del curso en A1 con el nombre actual del archivo
+      updateCourseHeader();
     }
   } catch (e) {
     console.log("Deferred initialization: " + e.message);
@@ -1062,14 +1065,63 @@ function rebuildFormulasAndFormatting() {
   ensureDynamicNamesForAllSessions();
 
   // Actualizar texto inteligente del Curso (A1) con lo que esté después de '|'
-  try {
-    var ssName = SpreadsheetApp.getActiveSpreadsheet().getName();
-    var cursoText = "CURSO";
-    if (ssName.indexOf("|") !== -1) {
-      cursoText = ssName.split("|")[1].trim();
+  updateCourseHeader(sheet);
+}
+
+function extractCourseFromSpreadsheetName(name) {
+  var rawName = String(name || '').trim();
+  if (!rawName) return "CURSO";
+
+  // 1. Extraer lo que esté después del delimitador '|' (no solo nombres específicos sino cualquier texto)
+  if (rawName.indexOf("|") !== -1) {
+    var parts = rawName.split("|").map(function (p) { return p.trim(); }).filter(Boolean);
+    if (parts.length > 1) {
+      // Buscar el segmento después del prefijo principal que NO sea un indicador de sesión (S#) o periodo (P#)
+      for (var i = 1; i < parts.length; i++) {
+        var token = parts[i];
+        if (!/^(S\d+|P\d+)$/i.test(token)) {
+          return token;
+        }
+      }
+      return parts[1];
     }
-    sheet.getRange(1, 1).setValue(cursoText);
-  } catch (e) { }
+  }
+
+  // 2. Fallback si no tiene '|': detectar rango o grado (ej. "3° - 5°", "601", "1002", "9°A")
+  var rangeMatch = rawName.match(/\d{1,2}\s*[º°ª]?[A-Za-z]?\s*(?:[-–]|a)\s*\d{1,2}\s*[º°ª]?[A-Za-z]?/i);
+  if (rangeMatch && !/^(S\d+|P\d+)$/i.test(rangeMatch[0])) {
+    return rangeMatch[0].trim();
+  }
+  var degMatch = rawName.match(/\b\d{1,2}[º°ª][A-Za-z]?\b/);
+  if (degMatch) {
+    return degMatch[0].trim();
+  }
+  var classCodeMatch = rawName.match(/\b(\d{3,4})\b/);
+  if (classCodeMatch) {
+    return classCodeMatch[1].trim();
+  }
+
+  return "CURSO";
+}
+
+function updateCourseHeader(sheet) {
+  try {
+    if (!sheet) sheet = getConsolidatedSheet();
+    if (!sheet) return;
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ssName = ss ? ss.getName() : "";
+    var cursoText = extractCourseFromSpreadsheetName(ssName);
+
+    var cellA1 = sheet.getRange(1, 1);
+    cellA1.setValue(cursoText);
+    cellA1.setFontFamily("Nunito")
+      .setFontWeight("bold")
+      .setHorizontalAlignment("center")
+      .setVerticalAlignment("middle");
+  } catch (e) {
+    console.log("Error al actualizar encabezado del curso: " + e.message);
+  }
 }
 
 function getConsolidatedSheet() {

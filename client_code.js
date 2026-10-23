@@ -16,6 +16,10 @@ function rebuildFormulasAndFormatting() {
   ZipGradeControllerMain.rebuildFormulasAndFormatting();
 }
 
+function updateCourseHeader() {
+  ZipGradeControllerMain.updateCourseHeader();
+}
+
 function cleanEmptyRowsAllSheets() {
   ZipGradeControllerMain.cleanEmptyRowsAllSheets();
 }
