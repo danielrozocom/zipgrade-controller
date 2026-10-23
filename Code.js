@@ -991,7 +991,7 @@ function isSpreadsheetStructureValid() {
   var hasAvg = false;
   for (var c = 0; c < lastCol; c++) {
     if (String(row1Vals[c] || '').toUpperCase().indexOf('PROMEDIO') !== -1 ||
-        String(row2Vals[c] || '').toUpperCase().indexOf('PROMEDIO') !== -1) {
+      String(row2Vals[c] || '').toUpperCase().indexOf('PROMEDIO') !== -1) {
       hasAvg = true;
       break;
     }
@@ -1023,7 +1023,7 @@ function rebuildFormulasAndFormatting() {
         }
       }
     }
-    
+
     if (oldTotalRow > 0 && oldTotalRow !== newTotalRow) {
       var lastCol = sheet.getLastColumn();
       if (lastCol > 0) {
@@ -1826,7 +1826,7 @@ function applyTableFormatting(sheet, studentEndRow) {
     try {
       sheet.insertRowsAfter(maxRows, neededRows - maxRows);
       maxRows = sheet.getMaxRows();
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // Asignar color de pestaña azul oscuro #223459 para Consolidado
@@ -2113,7 +2113,7 @@ function applySessionSheetFormatting(sheet) {
     try {
       sheet.insertRowsAfter(maxRows, targetLastRow - maxRows);
       maxRows = sheet.getMaxRows();
-    } catch (e) {}
+    } catch (e) { }
   }
 
   var lastCol = Math.max(sheet.getLastColumn(), 2);
@@ -2983,7 +2983,7 @@ function reapplyStudentRowFormatting(sheet, studentEndRow, totalCol) {
 
 function cleanEmptyRowsAllSheets() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  
+
   var numStudents = getValidStudentCount();
 
   // Si no hay nombres de estudiantes en S1, dejamos 40 filas disponibles por defecto
@@ -3001,7 +3001,7 @@ function cleanEmptyRowsAllSheets() {
         if (sheet.getFilter()) {
           sheet.getFilter().remove();
         }
-      } catch (e) {}
+      } catch (e) { }
 
       if (name === "CONSOLIDADO") {
         // En Consolidado: 3 filas de cabecera + targetStudentRows + 1 (TOTAL) + 1 (PROMEDIO)
@@ -3413,7 +3413,7 @@ function getFormulaSeparator() {
     if (semicolonLangs.indexOf(lang) !== -1) {
       return ";";
     }
-  } catch (e) {}
+  } catch (e) { }
   return ",";
 }
 
